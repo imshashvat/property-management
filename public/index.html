@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Property Management System - Secure login portal for property managers and tenants">
+  <title>PMS - Property Management System</title>
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏢</text></svg>">
+</head>
+<body>
+  <div class="login-page" id="loginPage">
+    <div class="login-container">
+      <div class="login-card">
+        <div class="login-logo">
+          <div class="logo-icon">🏢</div>
+          <h1>Property Management</h1>
+          <p>Manage your properties with ease</p>
+        </div>
+
+        <div class="login-tabs" id="loginTabs">
+          <button class="login-tab active" data-tab="admin" onclick="switchTab('admin')">Admin Login</button>
+          <button class="login-tab" data-tab="tenant" onclick="switchTab('tenant')">Tenant Login</button>
+        </div>
+
+        <div class="login-error" id="loginError"></div>
+
+        <!-- Admin Login Form -->
+        <form id="adminLoginForm" onsubmit="handleLogin(event, 'admin')">
+          <div class="form-group">
+            <label for="adminEmail">Email Address</label>
+            <input type="email" id="adminEmail" placeholder="admin@example.com" required>
+          </div>
+          <div class="form-group">
+            <label for="adminPassword">Password</label>
+            <input type="password" id="adminPassword" placeholder="Enter your password" required>
+          </div>
+          <button type="submit" class="btn btn-primary btn-full btn-lg" id="adminLoginBtn">
+            Sign In as Admin
+          </button>
+        </form>
+
+        <!-- Tenant Login Form -->
+        <form id="tenantLoginForm" class="hidden" onsubmit="handleLogin(event, 'tenant')">
+          <div class="form-group">
+            <label for="tenantCredId">Credential ID</label>
+            <input type="text" id="tenantCredId" placeholder="TNT-MAPLE-2024-001" required>
+          </div>
+          <div class="form-group">
+            <label for="tenantPassword">Password</label>
+            <input type="password" id="tenantPassword" placeholder="Enter your password" required>
+          </div>
+          <button type="submit" class="btn btn-primary btn-full btn-lg" id="tenantLoginBtn">
+            Sign In as Tenant
+          </button>
+        </form>
+
+        <div style="text-align:center; margin-top:24px;">
+          <p style="color:#64748b; font-size:12px;">Demo credentials shown below</p>
+          <p style="color:#94a3b8; font-size:11px; margin-top:4px;" id="demoCredentials">
+            Admin: admin@pms.com / Admin@123<br>
+            Tenant: TNT-MAPLE-2024-001 / Tenant@123
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Password Reset Modal -->
+  <div class="modal-overlay" id="resetPasswordModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>🔒 Set New Password</h2>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-secondary); margin-bottom:20px; font-size:14px;">
+          You must set a new password before continuing. Choose a strong password with at least 8 characters.
+        </p>
+        <form id="resetPasswordForm" onsubmit="handleResetPassword(event)">
+          <div class="form-group-app">
+            <label>New Password</label>
+            <input type="password" id="newPassword" placeholder="Minimum 8 characters" required minlength="8">
+          </div>
+          <div class="form-group-app">
+            <label>Confirm Password</label>
+            <input type="password" id="confirmPassword" placeholder="Repeat your password" required minlength="8">
+          </div>
+          <button type="submit" class="btn btn-primary btn-full btn-lg">Update Password</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    // Check if already logged in
+    const token = localStorage.getItem('pms_token');
+    const user = JSON.parse(localStorage.getItem('pms_user') || 'null');
+    if (token && user) {
+      if (user.mustResetPassword) {
+        document.getElementById('resetPasswordModal').classList.add('show');
+      } else {
+        window.location.href = user.role === 'admin' ? '/admin' : '/tenant';
+      }
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
+      document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
+      document.getElementById('adminLoginForm').classList.toggle('hidden', tab !== 'admin');
+      document.getElementById('tenantLoginForm').classList.toggle('hidden', tab !== 'tenant');
+      document.getElementById('loginError').classList.remove('show');
+    }
+
+    async function handleLogin(e, type) {
+      e.preventDefault();
+      const errorEl = document.getElementById('loginError');
+      errorEl.classList.remove('show');
+
+      const btn = type === 'admin' ? document.getElementById('adminLoginBtn') : document.getElementById('tenantLoginBtn');
+      btn.disabled = true;
+      btn.textContent = 'Signing in...';
+
+      try {
+        let body = {};
+        if (type === 'admin') {
+          body = { email: document.getElementById('adminEmail').value, password: document.getElementById('adminPassword').value };
+        } else {
+          body = { credentialId: document.getElementById('tenantCredId').value, password: document.getElementById('tenantPassword').value };
+        }
+
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Login failed');
+
+        localStorage.setItem('pms_token', data.accessToken);
+        localStorage.setItem('pms_refresh_token', data.refreshToken);
+        localStorage.setItem('pms_user', JSON.stringify(data.user));
+
+        if (data.user.mustResetPassword) {
+          document.getElementById('resetPasswordModal').classList.add('show');
+        } else {
+          window.location.href = data.user.role === 'admin' ? '/admin' : '/tenant';
+        }
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.classList.add('show');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = type === 'admin' ? 'Sign In as Admin' : 'Sign In as Tenant';
+      }
+    }
+
+    async function handleResetPassword(e) {
+      e.preventDefault();
+      const newPwd = document.getElementById('newPassword').value;
+      const confirmPwd = document.getElementById('confirmPassword').value;
+
+      if (newPwd !== confirmPwd) {
+        showToast('Passwords do not match', 'error');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/auth/reset-password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('pms_token')}`
+          },
+          body: JSON.stringify({ newPassword: newPwd })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        const user = JSON.parse(localStorage.getItem('pms_user') || '{}');
+        user.mustResetPassword = false;
+        localStorage.setItem('pms_user', JSON.stringify(user));
+
+        showToast('Password updated successfully!', 'success');
+        setTimeout(() => {
+          window.location.href = user.role === 'admin' ? '/admin' : '/tenant';
+        }, 1000);
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+  </script>
+</body>
+</html>

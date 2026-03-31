@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PMS - Tenant Portal</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="app-layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">
+        <div class="brand-icon">🏢</div>
+        <div class="brand-text"><h2>PMS</h2><span>Tenant Portal</span></div>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section-title">My Space</div>
+      <button class="nav-item active" onclick="tNavigate('dashboard')"><span class="nav-icon">🏠</span> Dashboard</button>
+      <button class="nav-item" onclick="tNavigate('payments')"><span class="nav-icon">💰</span> Payments</button>
+      <button class="nav-item" onclick="tNavigate('maintenance')"><span class="nav-icon">🔧</span> Maintenance</button>
+      <button class="nav-item" onclick="tNavigate('announcements')"><span class="nav-icon">📢</span> Announcements</button>
+      <button class="nav-item" onclick="tNavigate('profile')"><span class="nav-icon">👤</span> My Profile</button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="sidebar-user">
+        <div class="user-avatar" id="tenantAvatar">T</div>
+        <div class="user-info"><h4 id="tenantName">Tenant</h4><span id="tenantCredId">—</span></div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="hamburger" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+        <div><h1 id="tPageTitle">Dashboard</h1></div>
+      </div>
+      <div class="topbar-right">
+        <button class="icon-btn" onclick="toggleNotifPanel()" id="tNotifBtn">🔔<span class="notif-dot hidden" id="tNotifDot"></span></button>
+        <button class="icon-btn theme-toggle" onclick="toggleDarkMode()">🌙</button>
+        <button class="btn btn-sm btn-outline" onclick="logout()">Logout</button>
+      </div>
+    </header>
+    <div class="page-content" id="tPageContent"><div class="spinner"></div></div>
+  </main>
+</div>
+
+<div class="notif-panel" id="tNotifPanel">
+  <div class="notif-panel-header"><h3>Notifications</h3><button class="btn btn-sm btn-secondary" onclick="tMarkAllRead()">Mark all read</button></div>
+  <div class="notif-list" id="tNotifList"></div>
+</div>
+
+<div class="modal-overlay" id="tFormModal">
+  <div class="modal">
+    <div class="modal-header"><h2 id="tModalTitle">Form</h2><button class="modal-close" onclick="closeModal('tFormModal')">✕</button></div>
+    <div class="modal-body" id="tModalBody"></div>
+    <div class="modal-footer" id="tModalFooter"></div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+<script src="/js/api.js"></script>
+<script src="/js/tenant.js"></script>
+</body>
+</html>
