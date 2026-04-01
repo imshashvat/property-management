@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Users, Plus, Search, Eye, X, Upload, Copy, CheckCircle } from 'lucide-react';
+import { Users, Plus, Search, Eye, X, Copy, CheckCircle } from 'lucide-react';
 import Toast from '@/components/Toast';
 
 interface Tenant {
@@ -178,15 +178,7 @@ export default function TenantsPage() {
                       <input name="idProofNumber" className="form-input" required placeholder="ID number" />
                     </div>
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Upload ID Proof</label>
-                    <div className="form-file-input">
-                      <input type="file" name="idProof" accept="image/*,.pdf" />
-                      <Upload size={24} />
-                      <p><span>Click to upload</span> or drag and drop</p>
-                      <p style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginTop: 4 }}>PNG, JPG or PDF (max 5MB)</p>
-                    </div>
-                  </div>
+
                 </div>
               </div>
               <div className="modal-footer">

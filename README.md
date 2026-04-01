@@ -18,6 +18,7 @@ Push these changes to your repository.
 ### 3. Setup Database
 - Click the **Storage** tab in your project.
 - Create a **Postgres** database and connect it. This adds `DATABASE_URL` automatically.
+- Upon visiting the deployed application for the first time, the database schema will be automatically initialized and a test admin account created (`admin@propmanager.com`).
 
 ### 4. Setup Auth
 - Add `JWT_SECRET` and `JWT_REFRESH_SECRET` to **Settings > Environment Variables**.

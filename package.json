@@ -7,9 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "db:init": "tsx src/scripts/setup-db.ts",
-    "db:seed": "tsx src/scripts/seed-admin.ts",
-    "db:setup": "npm run db:init && npm run db:seed"
+    "db:init": "tsx src/scripts/setup-db.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -1,8 +1,10 @@
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
-import { verifyPassword, createAccessToken, createRefreshToken, verifyRefreshToken, hashPassword } from '@/lib/auth';
+import { verifyPassword, createAccessToken, createRefreshToken, verifyRefreshToken, hashPassword, verifyAccessToken } from '@/lib/auth';
 import { success, error } from '@/lib/utils';
 import { cookies } from 'next/headers';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ route: string[] }> }) {
   const { route } = await params;
@@ -132,7 +134,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
       const token = cookieStore.get('access_token')?.value;
       if (!token) return error('Not authenticated', 401);
 
-      const { verifyAccessToken } = await import('@/lib/auth');
       const payload = await verifyAccessToken(token);
       if (!payload) return error('Invalid token', 401);
 
@@ -201,6 +202,61 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
       return success({ message: 'Password updated' });
     } catch {
       return error('Internal server error', 500);
+    }
+  }
+
+  if (action === 'register') {
+    try {
+      const { name, email, password } = await req.json();
+
+      if (!name || !email || !password) {
+        return error('Name, email, and password are required');
+      }
+
+      if (password.length < 6) {
+        return error('Password must be at least 6 characters');
+      }
+
+      // Check if any admin exists already
+      const existingAdmin = await db.fetchOne(
+        'SELECT id FROM "User" WHERE role = $1 AND "isActive" = true LIMIT 1',
+        ['ADMIN']
+      );
+
+      // If admin exists, only allow authenticated admins to create more admins
+      if (existingAdmin) {
+        const cookieStore = await cookies();
+        const token = cookieStore.get('access_token')?.value;
+        if (!token) return error('Admin already exists. Please login first.', 403);
+        
+        const payload = await verifyAccessToken(token);
+        if (!payload || payload.role !== 'ADMIN') {
+          return error('Only existing admins can create new admin accounts', 403);
+        }
+      }
+
+      // Check email uniqueness
+      const existingUser = await db.fetchOne('SELECT id FROM "User" WHERE email = $1', [email]);
+      if (existingUser) return error('Email already registered');
+
+      const cuid = (await import('cuid')).default;
+      const id = cuid();
+      const hashedPwd = await hashPassword(password);
+      const now = new Date();
+
+      await db.query(
+        `INSERT INTO "User" (id, email, password, name, role, "isActive", "mustResetPwd", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [id, email, hashedPwd, name, 'ADMIN', true, false, now, now]
+      );
+
+      return success({
+        message: 'Admin account created successfully',
+        user: { id, email, name, role: 'ADMIN' }
+      }, 201);
+    } catch (e) {
+      console.error('Register error:', e);
+      return error('Failed to create account', 500);
     }
   }
 

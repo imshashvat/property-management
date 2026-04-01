@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { success, error, requireAuth } from '@/lib/utils';
 import cuid from 'cuid';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
   const auth = await requireAuth();
   if (auth.error) return auth.error;

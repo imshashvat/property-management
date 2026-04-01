@@ -2,9 +2,9 @@ import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { hashPassword, generateCredentialId, generateRandomPassword } from '@/lib/auth';
 import { success, error, requireAuth } from '@/lib/utils';
-import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
 import cuid from 'cuid';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const auth = await requireAuth(['ADMIN']);
@@ -61,7 +61,6 @@ export async function POST(req: NextRequest) {
     const emergencyContact = formData.get('emergencyContact') as string;
     const idProofType = formData.get('idProofType') as string;
     const idProofNumber = formData.get('idProofNumber') as string;
-    const idProofFile = formData.get('idProof') as File | null;
 
     if (!firstName || !lastName || !email || !phone) {
       return error('First name, last name, email, and phone are required');
@@ -75,20 +74,9 @@ export async function POST(req: NextRequest) {
     const existing = await db.fetchOne('SELECT id FROM "User" WHERE email = $1', [email]);
     if (existing) return error('Email already registered');
 
-    // Handle ID proof upload
-    let idProofUrl: string | null = null;
-    if (idProofFile && idProofFile.size > 0) {
-      const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'id-proofs');
-      await mkdir(uploadsDir, { recursive: true });
-      const ext = idProofFile.name.split('.').pop() || 'jpg';
-      const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const bytes = await idProofFile.arrayBuffer();
-      await writeFile(path.join(uploadsDir, filename), Buffer.from(bytes));
-      idProofUrl = `/uploads/id-proofs/${filename}`;
-    }
-
     // Generate credential ID
-    const { count } = await db.fetchOne('SELECT COUNT(*)::int FROM "Tenant"');
+    const countResult = await db.fetchOne('SELECT COUNT(*)::int as count FROM "Tenant"');
+    const count = countResult?.count || 0;
     const year = new Date().getFullYear();
     const credentialId = generateCredentialId('PRP', year, count + 1);
     const tempPassword = generateRandomPassword();
@@ -107,10 +95,10 @@ export async function POST(req: NextRequest) {
       );
 
       const tenant = await tx.query(
-        `INSERT INTO "Tenant" (id, "credentialId", "firstName", "lastName", phone, "emergencyContact", "idProofType", "idProofNumber", "idProofUrl", "userId", "isActive", "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        `INSERT INTO "Tenant" (id, "credentialId", "firstName", "lastName", phone, "emergencyContact", "idProofType", "idProofNumber", "userId", "isActive", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          RETURNING *`,
-        [tenantId, credentialId, firstName, lastName, phone, emergencyContact || null, idProofType, idProofNumber, idProofUrl, userId, true, now, now]
+        [tenantId, credentialId, firstName, lastName, phone, emergencyContact || null, idProofType, idProofNumber, userId, true, now, now]
       );
 
       return { user: user.rows[0], tenant: tenant.rows[0] };
