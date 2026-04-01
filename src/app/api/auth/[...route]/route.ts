@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { verifyPassword, createAccessToken, createRefreshToken, verifyRefreshToken, hashPassword, verifyAccessToken } from '@/lib/auth';
 import { success, error } from '@/lib/utils';
 import { cookies } from 'next/headers';
+import cuid from 'cuid';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,9 +92,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
         mustResetPwd: user.mustResetPwd,
         role: user.role,
       });
-    } catch (e) {
+    } catch (e: any) {
       console.error('Login error:', e);
-      return error('Internal server error', 500);
+      return error(e.message || 'Internal server error', 500);
     }
   }
 
@@ -116,8 +117,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
       });
 
       return success({ message: 'Token refreshed' });
-    } catch {
-      return error('Internal server error', 500);
+    } catch (e: any) {
+      return error(e.message || 'Internal server error', 500);
     }
   }
 
@@ -175,9 +176,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
       }
 
       return success({ ...user, tenant });
-    } catch (e) {
+    } catch (e: any) {
       console.error('Me error:', e);
-      return error('Internal server error', 500);
+      return error(e.message || 'Internal server error', 500);
     }
   }
 
@@ -200,13 +201,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
       );
 
       return success({ message: 'Password updated' });
-    } catch {
-      return error('Internal server error', 500);
+    } catch (e: any) {
+      return error(e.message || 'Internal server error', 500);
     }
   }
 
   if (action === 'register') {
     try {
+      // Guarantee tables exist before user query
+      await db.initSchema();
+
       const { name, email, password } = await req.json();
 
       if (!name || !email || !password) {
@@ -239,7 +243,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
       const existingUser = await db.fetchOne('SELECT id FROM "User" WHERE email = $1', [email]);
       if (existingUser) return error('Email already registered');
 
-      const cuid = (await import('cuid')).default;
       const id = cuid();
       const hashedPwd = await hashPassword(password);
       const now = new Date();
@@ -254,9 +257,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
         message: 'Admin account created successfully',
         user: { id, email, name, role: 'ADMIN' }
       }, 201);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Register error:', e);
-      return error('Failed to create account', 500);
+      return error(e.message || 'Failed to create account', 500);
     }
   }
 
