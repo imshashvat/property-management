@@ -1,25 +1,33 @@
-# Property Management System
+# Property Management System (Vercel Ready)
 
-A comprehensive, full-stack Property Management System built with Next.js 14, TypeScript, and Prisma. This platform provides a cohesive interface for administrators to manage properties and tenants, and for tenants to manage their rentals, payments, and maintenance requests.
+A comprehensive, full-stack Property Management System built with **Next.js 14**, **TypeScript**, and **PostgreSQL**. This platform provides a cohesive interface for administrators to manage properties and tenants, and for tenants to manage their rentals, payments, and maintenance requests.
 
 ---
 
-## 🚀 Features
+## 🚀 Easy Vercel Deployment
 
-### 👨‍💼 Administrator Portal
-- **Property & Unit Management:** Easily add and track properties, manage flats with detailed status (Occupied, Vacant, Under Maintenance).
-- **Tenant Administration:** Oversee tenant profiles, assign flats, handle documentation, and track move-in dates.
-- **Financial Dashboard:** Real-time visibility into payments, overdue rent, deposits, and automated late-fee tracking. Visualizations powered by Chart.js.
-- **Maintenance Tracking:** Manage maintenance requests efficiently, assign priority, track resolution, and close tickets.
-- **Automated Communication:** Send targeted announcements, email-like internal messages, and system notifications.
-- **Visitor Management:** Track expected visitors, check-ins, and check-outs for security.
-- **Audit Logging:** Built-in transparency with automated logging of administrative actions.
+This project is optimized for deployment on Vercel.
 
-### 🏠 Tenant Portal
-- **Intuitive Dashboard:** Quick access to active assignments, payment dues, and recent notifications.
-- **Maintenance Requests:** Submit, categorize, and track repair and maintenance issues easily.
-- **Payment Gateway:** View payment history, pending dues, and submit rent payments.
-- **Communication:** Receive community announcements and direct messages regarding the property.
+### 1. Push to GitHub
+If you haven't already, push these changes to your GitHub repository.
+
+### 2. Import to Vercel
+- Go to the [Vercel Dashboard](https://vercel.com/dashboard) and click **Add New > Project**.
+- Select your repository.
+
+### 3. Setup Database (The Easy Way)
+- In your Vercel Project Dashboard, click the **Storage** tab.
+- Click **Create Database** and select **Postgres**.
+- Follow the prompts to create the database.
+- Once created, click **Connect** to link it to your project. This will automatically add the `DATABASE_URL` environment variable.
+
+### 4. Add JWT Secret
+- Go to **Settings > Environment Variables**.
+- Add `JWT_SECRET` with any random string (e.g., `pms-secret-2024`).
+- Add `JWT_REFRESH_SECRET` with another random string.
+
+### 5. Redeploy
+- Go to the **Deployments** tab and click **Redeploy**. Your project will now be live with a working database!
 
 ---
 
@@ -27,64 +35,39 @@ A comprehensive, full-stack Property Management System built with Next.js 14, Ty
 
 - **Framework:** [Next.js 14](https://nextjs.org/) (App Router)
 - **Language:** [TypeScript](https://www.typescriptlang.org/)
-- **Database:** SQLite (development/local)
+- **Database:** [PostgreSQL](https://www.postgresql.org/) (Compatible with Vercel Postgres)
 - **ORM:** [Prisma](https://www.prisma.io/)
-- **Authentication:** Custom JWT-based authentication using `jose` & `bcryptjs`
-- **UI & Icons:** [Lucide React](https://lucide.dev/), Tailwind CSS (Standard implementation)
-- **Data Visualization:** Chart.js & react-chartjs-2
+- **Styling:** Vanilla CSS (Modern design)
+- **Authentication:** Custom JWT-based authentication
+- **Data Visualization:** Chart.js
 
 ---
 
 ## ⚙️ Local Development Setup
 
-Follow these instructions to get the project up and running on your local machine.
-
-### Prerequisites
-Make sure you have Node.js (v20+ recommended) installed.
-
-### 1. Clone & Install Dependencies
-Navigate to the project directory and install the required packages:
+### 1. Install Dependencies
 ```bash
 npm install
 ```
 
 ### 2. Environment Variables
-Ensure you have a `.env` file at the root of the project. It should contain at least the database URL for Prisma.
+Create a `.env` file at the root:
 ```env
-DATABASE_URL="file:./dev.db"
-# Add other required variables (like JWT secret) here
+DATABASE_URL="postgres://user:password@localhost:5432/pms"
+JWT_SECRET="your-secret"
+JWT_REFRESH_SECRET="your-refresh-secret"
 ```
 
 ### 3. Database Setup
-Push the Prisma schema to your SQLite database to create the tables.
 ```bash
-npm run db:push
-```
-
-*(Optional)* Seed the database with initial dummy data:
-```bash
-npm run db:seed
+npx prisma generate
+npx prisma db push
 ```
 
 ### 4. Running the Application
-Start the Next.js development server:
 ```bash
 npm run dev
 ```
-
-The application will be available at `http://localhost:3000`.
-
----
-
-## 📦 Available Scripts
-
-- `npm run dev` - Starts the development server.
-- `npm run build` - Builds the application for production.
-- `npm run start` - Runs the production build.
-- `npm run lint` - Runs Next.js ESLint.
-- `npm run db:push` - Synchronizes the Prisma schema with the database.
-- `npm run db:seed` - Populates the database with initial seed data.
-- `npm run db:studio` - Opens Prisma Studio for a web-based database UI.
 
 ---
 
