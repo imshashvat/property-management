@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/db';
 import { success, error, requireAuth } from '@/lib/utils';
+import cuid from 'cuid';
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
@@ -10,23 +11,54 @@ export async function GET(req: NextRequest) {
   const propertyId = searchParams.get('propertyId');
   const status = searchParams.get('status');
 
-  const where: Record<string, unknown> = { isActive: true };
-  if (propertyId) where.propertyId = propertyId;
-  if (status) where.status = status;
+  let query = `
+    SELECT f.*, p.name as "propertyName", p.id as "propertyId"
+    FROM "Flat" f
+    JOIN "Property" p ON f."propertyId" = p.id
+    WHERE f."isActive" = true
+  `;
+  const params: any[] = [];
+  let i = 1;
 
-  const flats = await prisma.flat.findMany({
-    where,
-    include: {
-      property: { select: { id: true, name: true } },
-      assignments: {
-        where: { isActive: true },
-        include: { tenant: { select: { id: true, firstName: true, lastName: true, credentialId: true } } },
-      },
-    },
-    orderBy: { flatNumber: 'asc' },
-  });
+  if (propertyId) {
+    query += ` AND f."propertyId" = $${i++}`;
+    params.push(propertyId);
+  }
+  if (status) {
+    query += ` AND f.status = $${i++}`;
+    params.push(status);
+  }
 
-  return success(flats);
+  query += ` ORDER BY f."flatNumber" ASC`;
+
+  try {
+    const flats = await db.fetchAll(query, params);
+    
+    // Fetch active assignments for each flat
+    const enrichedFlats = await Promise.all(flats.map(async (f) => {
+      const assignments = await db.fetchAll(
+        `SELECT a.*, t."firstName", t."lastName", t."credentialId"
+         FROM "Assignment" a
+         JOIN "Tenant" t ON a."tenantId" = t.id
+         WHERE a."flatId" = $1 AND a."isActive" = true`,
+        [f.id]
+      );
+      
+      return {
+        ...f,
+        property: { id: f.propertyId, name: f.propertyName },
+        assignments: assignments.map(a => ({
+          ...a,
+          tenant: { id: a.tenantId, firstName: a.firstName, lastName: a.lastName, credentialId: a.credentialId }
+        }))
+      };
+    }));
+
+    return success(enrichedFlats);
+  } catch (e) {
+    console.error('Get flats error:', e);
+    return error('Failed to fetch flats', 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -41,32 +73,43 @@ export async function POST(req: NextRequest) {
       return error('Property, flat number, and rent amount are required');
     }
 
-    const flat = await prisma.flat.create({
-      data: {
-        propertyId, flatNumber,
-        floor: floor || 0,
-        bedrooms: bedrooms || 1,
-        bathrooms: bathrooms || 1,
-        area: area || null,
-        rentAmount: parseFloat(rentAmount),
-        depositAmount: depositAmount ? parseFloat(depositAmount) : null,
-        furnishing: furnishing || 'UNFURNISHED',
-        description: description || null,
-      },
-    });
+    // Check for existing flat
+    const existing = await db.fetchOne(
+      'SELECT id FROM "Flat" WHERE "propertyId" = $1 AND "flatNumber" = $2 AND "isActive" = true',
+      [propertyId, flatNumber]
+    );
+    if (existing) {
+      return error('A flat with this number already exists in this property');
+    }
 
-    // Update property total flats count
-    await prisma.property.update({
-      where: { id: propertyId },
-      data: { totalFlats: { increment: 1 } },
+    const id = cuid();
+    const now = new Date();
+
+    const flat = await db.transaction(async (tx) => {
+      const f = await tx.query(
+        `INSERT INTO "Flat" (id, "propertyId", "flatNumber", floor, bedrooms, bathrooms, area, "rentAmount", "depositAmount", furnishing, description, "isActive", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         RETURNING *`,
+        [
+          id, propertyId, flatNumber, floor || 0,
+          bedrooms || 1, bathrooms || 1, area || null,
+          parseFloat(rentAmount), depositAmount ? parseFloat(depositAmount) : null,
+          furnishing || 'UNFURNISHED', description || null,
+          true, now, now
+        ]
+      );
+
+      // Update property total flats count
+      await tx.query(
+        'UPDATE "Property" SET "totalFlats" = "totalFlats" + 1 WHERE id = $1',
+        [propertyId]
+      );
+
+      return f.rows[0];
     });
 
     return success(flat, 201);
-  } catch (e: unknown) {
-    const err = e as { code?: string };
-    if (err.code === 'P2002') {
-      return error('A flat with this number already exists in this property');
-    }
+  } catch (e) {
     console.error('Create flat error:', e);
     return error('Failed to create flat', 500);
   }
@@ -82,16 +125,33 @@ export async function PUT(req: NextRequest) {
 
     if (!id) return error('Flat ID is required');
 
-    if (data.rentAmount) data.rentAmount = parseFloat(data.rentAmount);
-    if (data.depositAmount) data.depositAmount = parseFloat(data.depositAmount);
-    if (data.area) data.area = parseFloat(data.area);
-    if (data.floor) data.floor = parseInt(data.floor);
-    if (data.bedrooms) data.bedrooms = parseInt(data.bedrooms);
-    if (data.bathrooms) data.bathrooms = parseInt(data.bathrooms);
+    const fields: string[] = [];
+    const values: any[] = [];
+    let i = 1;
 
-    const flat = await prisma.flat.update({ where: { id }, data });
+    for (const [key, value] of Object.entries(data)) {
+      let val = value;
+      if (['rentAmount', 'depositAmount', 'area'].includes(key) && value) {
+        val = parseFloat(value as string);
+      } else if (['floor', 'bedrooms', 'bathrooms'].includes(key) && value) {
+        val = parseInt(value as string);
+      }
+      fields.push(`"${key}" = $${i++}`);
+      values.push(val);
+    }
+
+    fields.push(`"updatedAt" = $${i++}`);
+    values.push(new Date());
+    values.push(id);
+
+    const flat = await db.fetchOne(
+      `UPDATE "Flat" SET ${fields.join(', ')} WHERE id = $${i} RETURNING *`,
+      values
+    );
+
     return success(flat);
-  } catch {
+  } catch (e) {
+    console.error('Update flat error:', e);
     return error('Failed to update flat', 500);
   }
 }
@@ -104,14 +164,24 @@ export async function DELETE(req: NextRequest) {
   const id = searchParams.get('id');
   if (!id) return error('Flat ID is required');
 
-  const flat = await prisma.flat.findUnique({ where: { id } });
-  if (!flat) return error('Flat not found', 404);
+  try {
+    const flat = await db.fetchOne('SELECT "propertyId" FROM "Flat" WHERE id = $1', [id]);
+    if (!flat) return error('Flat not found', 404);
 
-  await prisma.flat.update({ where: { id }, data: { isActive: false } });
-  await prisma.property.update({
-    where: { id: flat.propertyId },
-    data: { totalFlats: { decrement: 1 } },
-  });
+    await db.transaction(async (tx) => {
+      await tx.query(
+        'UPDATE "Flat" SET "isActive" = false, "updatedAt" = $2 WHERE id = $1',
+        [id, new Date()]
+      );
+      await tx.query(
+        'UPDATE "Property" SET "totalFlats" = "totalFlats" - 1 WHERE id = $1',
+        [flat.propertyId]
+      );
+    });
 
-  return success({ message: 'Flat deleted' });
+    return success({ message: 'Flat deleted' });
+  } catch (e) {
+    console.error('Delete flat error:', e);
+    return error('Failed to delete flat', 500);
+  }
 }

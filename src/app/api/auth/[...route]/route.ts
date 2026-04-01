@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/db';
 import { verifyPassword, createAccessToken, createRefreshToken, verifyRefreshToken, hashPassword } from '@/lib/auth';
 import { success, error } from '@/lib/utils';
 import { cookies } from 'next/headers';
@@ -17,15 +17,32 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
       }
 
       // Try finding by email or credential ID
-      let user = await prisma.user.findUnique({ where: { email } });
+      let user = await db.fetchOne(
+        'SELECT * FROM "User" WHERE "email" = $1',
+        [email]
+      );
 
       if (!user) {
         // Try credential ID lookup
-        const tenant = await prisma.tenant.findUnique({
-          where: { credentialId: email },
-          include: { user: true },
-        });
-        if (tenant) user = tenant.user;
+        const tenant = await db.fetchOne(
+          `SELECT t.*, u.id as user_id, u.email as user_email, u.password as user_password, 
+                  u.name as user_name, u.role as user_role, u."isActive" as user_active
+           FROM "Tenant" t 
+           JOIN "User" u ON t."userId" = u.id 
+           WHERE t."credentialId" = $1`,
+          [email]
+        );
+        
+        if (tenant) {
+          user = {
+            id: tenant.user_id,
+            email: tenant.user_email,
+            password: tenant.user_password,
+            name: tenant.user_name,
+            role: tenant.user_role,
+            isActive: tenant.user_active
+          };
+        }
       }
 
       if (!user || !user.isActive) {
@@ -40,7 +57,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
       // Get tenant info if applicable
       let tenantId: string | undefined;
       if (user.role === 'TENANT') {
-        const tenant = await prisma.tenant.findUnique({ where: { userId: user.id } });
+        const tenant = await db.fetchOne(
+          'SELECT id FROM "Tenant" WHERE "userId" = $1',
+          [user.id]
+        );
         tenantId = tenant?.id;
       }
 
@@ -116,28 +136,46 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
       const payload = await verifyAccessToken(token);
       if (!payload) return error('Invalid token', 401);
 
-      const user = await prisma.user.findUnique({
-        where: { id: payload.userId },
-        select: { id: true, email: true, name: true, role: true, phone: true, avatar: true },
-      });
+      const user = await db.fetchOne(
+        `SELECT id, email, name, role, phone, avatar FROM "User" WHERE id = $1`,
+        [payload.userId]
+      );
 
       if (!user) return error('User not found', 404);
 
       let tenant = null;
       if (user.role === 'TENANT') {
-        tenant = await prisma.tenant.findUnique({
-          where: { userId: user.id },
-          include: {
-            assignments: {
-              where: { isActive: true },
-              include: { flat: { include: { property: true } } },
-            },
-          },
-        });
+        const tenantData = await db.fetchOne(
+          'SELECT * FROM "Tenant" WHERE "userId" = $1',
+          [user.id]
+        );
+        
+        if (tenantData) {
+          const assignments = await db.fetchAll(
+            `SELECT a.*, f."flatNumber", p.name as "propertyName", p.id as "propertyId" 
+             FROM "Assignment" a
+             JOIN "Flat" f ON a."flatId" = f.id
+             JOIN "Property" p ON f."propertyId" = p.id
+             WHERE a."tenantId" = $1 AND a."isActive" = true`,
+            [tenantData.id]
+          );
+          
+          tenant = {
+            ...tenantData,
+            assignments: assignments.map(a => ({
+              ...a,
+              flat: {
+                flatNumber: a.flatNumber,
+                property: { id: a.propertyId, name: a.propertyName }
+              }
+            }))
+          };
+        }
       }
 
       return success({ ...user, tenant });
-    } catch {
+    } catch (e) {
+      console.error('Me error:', e);
       return error('Internal server error', 500);
     }
   }
@@ -145,17 +183,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
   if (action === 'reset-password') {
     try {
       const { userId, currentPassword, newPassword } = await req.json();
-      const user = await prisma.user.findUnique({ where: { id: userId } });
+      const user = await db.fetchOne(
+        'SELECT * FROM "User" WHERE id = $1',
+        [userId]
+      );
       if (!user) return error('User not found', 404);
 
       const valid = await verifyPassword(currentPassword, user.password);
       if (!valid) return error('Current password is incorrect', 400);
 
       const hashed = await hashPassword(newPassword);
-      await prisma.user.update({
-        where: { id: userId },
-        data: { password: hashed, mustResetPwd: false },
-      });
+      await db.query(
+        'UPDATE "User" SET "password" = $1, "mustResetPwd" = false WHERE id = $2',
+        [hashed, userId]
+      );
 
       return success({ message: 'Password updated' });
     } catch {

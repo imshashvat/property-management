@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/db';
 import { success, error, requireAuth } from '@/lib/utils';
+import cuid from 'cuid';
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuth();
@@ -10,24 +11,43 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get('status');
   const priority = searchParams.get('priority');
 
-  const where: Record<string, unknown> = {};
+  let query = `
+    SELECT m.*, t."firstName", t."lastName", t."credentialId", f."flatNumber", p.name as "propertyName"
+    FROM "MaintenanceRequest" m
+    JOIN "Tenant" t ON m."tenantId" = t.id
+    JOIN "Flat" f ON m."flatId" = f.id
+    JOIN "Property" p ON f."propertyId" = p.id
+    WHERE 1=1
+  `;
+  const params: any[] = [];
+  let i = 1;
 
   if (auth.session!.role === 'TENANT') {
-    where.tenantId = auth.session!.tenantId;
+    query += ` AND m."tenantId" = $${i++}`;
+    params.push(auth.session!.tenantId);
   }
-  if (status) where.status = status;
-  if (priority) where.priority = priority;
+  if (status) {
+    query += ` AND m.status = $${i++}`;
+    params.push(status);
+  }
+  if (priority) {
+    query += ` AND m.priority = $${i++}`;
+    params.push(priority);
+  }
 
-  const requests = await prisma.maintenanceRequest.findMany({
-    where,
-    include: {
-      tenant: { select: { firstName: true, lastName: true, credentialId: true } },
-      flat: { select: { flatNumber: true, property: { select: { name: true } } } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  query += ` ORDER BY m."createdAt" DESC`;
 
-  return success(requests);
+  try {
+    const requests = await db.fetchAll(query, params);
+    return success(requests.map(r => ({
+      ...r,
+      tenant: { firstName: r.firstName, lastName: r.lastName, credentialId: r.credentialId },
+      flat: { flatNumber: r.flatNumber, property: { name: r.propertyName } }
+    })));
+  } catch (e) {
+    console.error('Get maintenance error:', e);
+    return error('Failed to fetch maintenance requests', 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -49,9 +69,10 @@ export async function POST(req: NextRequest) {
     if (auth.session!.role === 'TENANT') {
       resolvedTenantId = auth.session!.tenantId;
       // Get tenant's active assignment flat
-      const assignment = await prisma.assignment.findFirst({
-        where: { tenantId: resolvedTenantId, isActive: true },
-      });
+      const assignment = await db.fetchOne(
+        'SELECT "flatId" FROM "Assignment" WHERE "tenantId" = $1 AND "isActive" = true',
+        [resolvedTenantId]
+      );
       if (!assignment) return error('No active flat assignment found');
       resolvedFlatId = assignment.flatId;
     }
@@ -60,16 +81,19 @@ export async function POST(req: NextRequest) {
       return error('Tenant and flat are required');
     }
 
-    const request = await prisma.maintenanceRequest.create({
-      data: {
-        title,
-        description,
-        category: category || 'GENERAL',
-        priority: priority || 'MEDIUM',
-        tenantId: resolvedTenantId,
-        flatId: resolvedFlatId,
-      },
-    });
+    const id = cuid();
+    const now = new Date();
+
+    const request = await db.fetchOne(
+      `INSERT INTO "MaintenanceRequest" (id, title, description, category, priority, status, "tenantId", "flatId", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING *`,
+      [
+        id, title, description, category || 'GENERAL', 
+        priority || 'MEDIUM', 'OPEN', resolvedTenantId, 
+        resolvedFlatId, now, now
+      ]
+    );
 
     return success(request, 201);
   } catch (e) {
@@ -88,18 +112,40 @@ export async function PUT(req: NextRequest) {
 
     if (!id) return error('Request ID is required');
 
-    const updateData: Record<string, unknown> = {};
-    if (status) updateData.status = status;
-    if (resolution) updateData.resolution = resolution;
-    if (priority) updateData.priority = priority;
+    const fields: string[] = [];
+    const values: any[] = [];
+    let i = 1;
 
-    if (status === 'RESOLVED' || status === 'CLOSED') {
-      updateData.resolvedAt = new Date();
+    if (status) {
+      fields.push(`status = $${i++}`);
+      values.push(status);
+    }
+    if (resolution) {
+      fields.push(`resolution = $${i++}`);
+      values.push(resolution);
+    }
+    if (priority) {
+      fields.push(`priority = $${i++}`);
+      values.push(priority);
     }
 
-    const request = await prisma.maintenanceRequest.update({ where: { id }, data: updateData });
+    if (status === 'RESOLVED' || status === 'CLOSED') {
+      fields.push(`"resolvedAt" = $${i++}`);
+      values.push(new Date());
+    }
+
+    fields.push(`"updatedAt" = $${i++}`);
+    values.push(new Date());
+    values.push(id);
+
+    const request = await db.fetchOne(
+      `UPDATE "MaintenanceRequest" SET ${fields.join(', ')} WHERE id = $${i} RETURNING *`,
+      values
+    );
+
     return success(request);
-  } catch {
+  } catch (e) {
+    console.error('Update maintenance error:', e);
     return error('Failed to update maintenance request', 500);
   }
 }

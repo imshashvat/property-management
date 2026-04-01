@@ -1,27 +1,51 @@
 import { NextRequest } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/db';
 import { hashPassword, generateCredentialId, generateRandomPassword } from '@/lib/auth';
 import { success, error, requireAuth } from '@/lib/utils';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
+import cuid from 'cuid';
 
 export async function GET() {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
-  const tenants = await prisma.tenant.findMany({
-    where: { isActive: true },
-    include: {
-      user: { select: { id: true, email: true, name: true, isActive: true } },
-      assignments: {
-        where: { isActive: true },
-        include: { flat: { include: { property: { select: { name: true } } } } },
-      },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  try {
+    const tenants = await db.fetchAll(`
+      SELECT t.*, u.email, u.name as "userName", u."isActive" as "userActive"
+      FROM "Tenant" t
+      JOIN "User" u ON t."userId" = u.id
+      WHERE t."isActive" = true
+      ORDER BY t."createdAt" DESC
+    `);
 
-  return success(tenants);
+    const enrichedTenants = await Promise.all(tenants.map(async (t) => {
+      const assignments = await db.fetchAll(`
+        SELECT a.*, f."flatNumber", p.name as "propertyName"
+        FROM "Assignment" a
+        JOIN "Flat" f ON a."flatId" = f.id
+        JOIN "Property" p ON f."propertyId" = p.id
+        WHERE a."tenantId" = $1 AND a."isActive" = true
+      `, [t.id]);
+
+      return {
+        ...t,
+        user: { id: t.userId, email: t.email, name: t.userName, isActive: t.userActive },
+        assignments: assignments.map(a => ({
+          ...a,
+          flat: { 
+            flatNumber: a.flatNumber, 
+            property: { name: a.propertyName } 
+          }
+        }))
+      };
+    }));
+
+    return success(enrichedTenants);
+  } catch (e) {
+    console.error('Get tenants error:', e);
+    return error('Failed to fetch tenants', 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -48,7 +72,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Check email uniqueness
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const existing = await db.fetchOne('SELECT id FROM "User" WHERE email = $1', [email]);
     if (existing) return error('Email already registered');
 
     // Handle ID proof upload
@@ -64,40 +88,32 @@ export async function POST(req: NextRequest) {
     }
 
     // Generate credential ID
-    const tenantCount = await prisma.tenant.count();
+    const { count } = await db.fetchOne('SELECT COUNT(*)::int FROM "Tenant"');
     const year = new Date().getFullYear();
-    const credentialId = generateCredentialId('PRP', year, tenantCount + 1);
+    const credentialId = generateCredentialId('PRP', year, count + 1);
     const tempPassword = generateRandomPassword();
     const hashedPwd = await hashPassword(tempPassword);
 
-    // Create user + tenant in transaction
-    const result = await prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          email,
-          password: hashedPwd,
-          name: `${firstName} ${lastName}`,
-          role: 'TENANT',
-          phone,
-          mustResetPwd: true,
-        },
-      });
+    const userId = cuid();
+    const tenantId = cuid();
+    const now = new Date();
 
-      const tenant = await tx.tenant.create({
-        data: {
-          credentialId,
-          firstName,
-          lastName,
-          phone,
-          emergencyContact: emergencyContact || null,
-          idProofType,
-          idProofNumber,
-          idProofUrl,
-          userId: user.id,
-        },
-      });
+    const result = await db.transaction(async (tx) => {
+      const user = await tx.query(
+        `INSERT INTO "User" (id, email, password, name, role, phone, "mustResetPwd", "isActive", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING *`,
+        [userId, email, hashedPwd, `${firstName} ${lastName}`, 'TENANT', phone, true, true, now, now]
+      );
 
-      return { user, tenant };
+      const tenant = await tx.query(
+        `INSERT INTO "Tenant" (id, "credentialId", "firstName", "lastName", phone, "emergencyContact", "idProofType", "idProofNumber", "idProofUrl", "userId", "isActive", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         RETURNING *`,
+        [tenantId, credentialId, firstName, lastName, phone, emergencyContact || null, idProofType, idProofNumber, idProofUrl, userId, true, now, now]
+      );
+
+      return { user: user.rows[0], tenant: tenant.rows[0] };
     });
 
     return success({
@@ -124,29 +140,32 @@ export async function PUT(req: NextRequest) {
 
     if (!id) return error('Tenant ID is required');
 
-    const tenant = await prisma.tenant.update({
-      where: { id },
-      data: {
-        ...(firstName && { firstName }),
-        ...(lastName && { lastName }),
-        ...(phone && { phone }),
-        ...(emergencyContact !== undefined && { emergencyContact }),
-      },
-    });
+    const now = new Date();
+    const tenant = await db.fetchOne(
+      `UPDATE "Tenant" 
+       SET "firstName" = COALESCE($1, "firstName"), 
+           "lastName" = COALESCE($2, "lastName"), 
+           phone = COALESCE($3, phone), 
+           "emergencyContact" = $4, 
+           "updatedAt" = $5 
+       WHERE id = $6 
+       RETURNING *`,
+      [firstName, lastName, phone, emergencyContact, now, id]
+    );
 
-    // Also update user name
+    if (!tenant) return error('Tenant not found', 404);
+
+    // Also update user name if name changed
     if (firstName || lastName) {
-      const t = await prisma.tenant.findUnique({ where: { id } });
-      if (t) {
-        await prisma.user.update({
-          where: { id: t.userId },
-          data: { name: `${firstName || t.firstName} ${lastName || t.lastName}` },
-        });
-      }
+      await db.query(
+        'UPDATE "User" SET name = $1, "updatedAt" = $2 WHERE id = $3',
+        [`${firstName || tenant.firstName} ${lastName || tenant.lastName}`, now, tenant.userId]
+      );
     }
 
     return success(tenant);
-  } catch {
+  } catch (e) {
+    console.error('Update tenant error:', e);
     return error('Failed to update tenant', 500);
   }
 }
@@ -159,12 +178,19 @@ export async function DELETE(req: NextRequest) {
   const id = searchParams.get('id');
   if (!id) return error('Tenant ID is required');
 
-  await prisma.tenant.update({ where: { id }, data: { isActive: false } });
+  try {
+    const tenant = await db.fetchOne('SELECT "userId" FROM "Tenant" WHERE id = $1', [id]);
+    if (!tenant) return error('Tenant not found', 404);
 
-  const tenant = await prisma.tenant.findUnique({ where: { id } });
-  if (tenant) {
-    await prisma.user.update({ where: { id: tenant.userId }, data: { isActive: false } });
+    const now = new Date();
+    await db.transaction(async (tx) => {
+      await tx.query('UPDATE "Tenant" SET "isActive" = false, "updatedAt" = $1 WHERE id = $2', [now, id]);
+      await tx.query('UPDATE "User" SET "isActive" = false, "updatedAt" = $1 WHERE id = $2', [now, tenant.userId]);
+    });
+
+    return success({ message: 'Tenant deactivated' });
+  } catch (e) {
+    console.error('Delete tenant error:', e);
+    return error('Failed to delete tenant', 500);
   }
-
-  return success({ message: 'Tenant deactivated' });
 }
