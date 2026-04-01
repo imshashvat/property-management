@@ -3,7 +3,7 @@ import { Pool, QueryResult, QueryResultRow } from 'pg';
 // Serverless-optimized pool configuration
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false },
   max: 5,                  // Limit connections for serverless
   idleTimeoutMillis: 10000, // Close idle connections quickly
   connectionTimeoutMillis: 10000,
