@@ -92,6 +92,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
   const { route } = await params;
   const action = route[0];
 
+  if (action === 'logout') {
+    const response = success({ message: 'Logged out' });
+    response.cookies.delete('access_token');
+    response.cookies.delete('refresh_token');
+    return response;
+  }
+
   if (action === 'login') {
     try {
       const { email, password } = await req.json();
