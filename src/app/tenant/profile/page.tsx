@@ -17,7 +17,7 @@ export default function TenantProfile() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
-    fetch('/api/auth/me', { method: 'POST' }).then(r => r.json()).then(d => {
+    fetch('/api/auth/me').then(r => r.json()).then(d => {
       if (d.success) setUser(d.data);
       setLoading(false);
     });

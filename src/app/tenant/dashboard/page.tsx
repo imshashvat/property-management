@@ -45,7 +45,7 @@ export default function TenantDashboard() {
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/auth/me', { method: 'POST' }).then(r => r.json()),
+      fetch('/api/auth/me').then(r => r.json()),
       fetch('/api/rent').then(r => r.json()),
       fetch('/api/maintenance').then(r => r.json()),
     ]).then(([userData, payData, maintData]) => {

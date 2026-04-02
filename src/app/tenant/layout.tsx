@@ -20,7 +20,7 @@ export default function TenantLayout({ children }: { children: React.ReactNode }
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
 
   useEffect(() => {
-    fetch('/api/auth/me', { method: 'POST' })
+    fetch('/api/auth/me')
       .then(r => r.json())
       .then(d => {
         if (!d.success || d.data.role !== 'TENANT') {
