@@ -21,6 +21,9 @@
     "react-chartjs-2": "^5.2.0",
     "react-dom": "^18.3.1"
   },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20.17.10",
