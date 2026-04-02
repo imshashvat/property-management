@@ -10,14 +10,16 @@ export async function GET() {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
+
   try {
     const tenants = await db.fetchAll(`
       SELECT t.*, u.email, u.name as "userName", u."isActive" as "userActive"
       FROM "Tenant" t
       JOIN "User" u ON t."userId" = u.id
-      WHERE t."isActive" = true
+      WHERE t."isActive" = true AND t."adminId" = $1
       ORDER BY t."createdAt" DESC
-    `);
+    `, [adminId]);
 
     const enrichedTenants = await Promise.all(tenants.map(async (t) => {
       const assignments = await db.fetchAll(`
@@ -52,6 +54,8 @@ export async function POST(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
+
   try {
     const formData = await req.formData();
     const firstName = formData.get('firstName') as string;
@@ -74,8 +78,8 @@ export async function POST(req: NextRequest) {
     const existing = await db.fetchOne('SELECT id FROM "User" WHERE email = $1', [email]);
     if (existing) return error('Email already registered');
 
-    // Generate credential ID
-    const countResult = await db.fetchOne('SELECT COUNT(*)::int as count FROM "Tenant"');
+    // Generate credential ID — count tenants for this admin only
+    const countResult = await db.fetchOne('SELECT COUNT(*)::int as count FROM "Tenant" WHERE "adminId" = $1', [adminId]);
     const count = countResult?.count || 0;
     const year = new Date().getFullYear();
     const credentialId = generateCredentialId('PRP', year, count + 1);
@@ -95,10 +99,10 @@ export async function POST(req: NextRequest) {
       );
 
       const tenant = await tx.query(
-        `INSERT INTO "Tenant" (id, "credentialId", "firstName", "lastName", phone, "emergencyContact", "idProofType", "idProofNumber", "userId", "isActive", "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        `INSERT INTO "Tenant" (id, "credentialId", "firstName", "lastName", phone, "emergencyContact", "idProofType", "idProofNumber", "userId", "isActive", "adminId", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          RETURNING *`,
-        [tenantId, credentialId, firstName, lastName, phone, emergencyContact || null, idProofType, idProofNumber, userId, true, now, now]
+        [tenantId, credentialId, firstName, lastName, phone, emergencyContact || null, idProofType, idProofNumber, userId, true, adminId, now, now]
       );
 
       return { user: user.rows[0], tenant: tenant.rows[0] };
@@ -122,11 +126,17 @@ export async function PUT(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
+
   try {
     const body = await req.json();
     const { id, firstName, lastName, phone, emergencyContact } = body;
 
     if (!id) return error('Tenant ID is required');
+
+    // Verify ownership
+    const owned = await db.fetchOne('SELECT id, "userId" FROM "Tenant" WHERE id = $1 AND "adminId" = $2', [id, adminId]);
+    if (!owned) return error('Tenant not found', 404);
 
     const now = new Date();
     const tenant = await db.fetchOne(
@@ -162,12 +172,13 @@ export async function DELETE(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   if (!id) return error('Tenant ID is required');
 
   try {
-    const tenant = await db.fetchOne('SELECT "userId" FROM "Tenant" WHERE id = $1', [id]);
+    const tenant = await db.fetchOne('SELECT "userId" FROM "Tenant" WHERE id = $1 AND "adminId" = $2', [id, adminId]);
     if (!tenant) return error('Tenant not found', 404);
 
     const now = new Date();

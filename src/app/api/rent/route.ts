@@ -29,9 +29,14 @@ export async function GET(req: NextRequest) {
   if (auth.session!.role === 'TENANT') {
     query += ` AND p."tenantId" = $${i++}`;
     params.push(auth.session!.tenantId);
-  } else if (tenantId) {
-    query += ` AND p."tenantId" = $${i++}`;
-    params.push(tenantId);
+  } else {
+    // Admin sees only their own payments
+    query += ` AND p."adminId" = $${i++}`;
+    params.push(auth.session!.userId);
+    if (tenantId) {
+      query += ` AND p."tenantId" = $${i++}`;
+      params.push(tenantId);
+    }
   }
 
   if (status) {
@@ -66,12 +71,20 @@ export async function POST(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
+
   try {
     const { tenantId, flatId, amount, month, year, dueDate } = await req.json();
 
     if (!tenantId || !flatId || !amount || !month || !year) {
       return error('Tenant, flat, amount, month, and year are required');
     }
+
+    // Verify tenant and flat belong to this admin
+    const ownedTenant = await db.fetchOne('SELECT id FROM "Tenant" WHERE id = $1 AND "adminId" = $2', [tenantId, adminId]);
+    if (!ownedTenant) return error('Tenant not found', 404);
+    const ownedFlat = await db.fetchOne('SELECT id FROM "Flat" WHERE id = $1 AND "adminId" = $2', [flatId, adminId]);
+    if (!ownedFlat) return error('Flat not found', 404);
 
     // Check for existing payment
     const existing = await db.fetchOne(
@@ -87,12 +100,12 @@ export async function POST(req: NextRequest) {
     const defaultDueDate = new Date(parsedYear, parsedMonth - 1, 5);
 
     const payment = await db.fetchOne(
-      `INSERT INTO "Payment" (id, "tenantId", "flatId", amount, month, year, "dueDate", status, "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO "Payment" (id, "tenantId", "flatId", amount, month, year, "dueDate", status, "adminId", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         id, tenantId, flatId, parseFloat(amount), parsedMonth, parsedYear,
-        dueDate ? new Date(dueDate) : defaultDueDate, 'PENDING', now, now
+        dueDate ? new Date(dueDate) : defaultDueDate, 'PENDING', adminId, now, now
       ]
     );
 
@@ -107,11 +120,17 @@ export async function PUT(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
+
   try {
     const body = await req.json();
     const { id, status, paymentMethod, transactionId, paidDate, notes, lateFee } = body;
 
     if (!id) return error('Payment ID is required');
+
+    // Verify ownership
+    const owned = await db.fetchOne('SELECT id FROM "Payment" WHERE id = $1 AND "adminId" = $2', [id, adminId]);
+    if (!owned) return error('Payment not found', 404);
 
     const fields: string[] = [];
     const values: any[] = [];
@@ -159,10 +178,12 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// Generate rent for all active assignments
+// Generate rent for all active assignments belonging to this admin
 export async function PATCH(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
+
+  const adminId = auth.session!.userId;
 
   try {
     const { month, year } = await req.json();
@@ -171,7 +192,8 @@ export async function PATCH(req: NextRequest) {
     const parsedMonth = parseInt(month);
     const parsedYear = parseInt(year);
 
-    const activeAssignments = await db.fetchAll('SELECT * FROM "Assignment" WHERE "isActive" = true');
+    // Only get active assignments for this admin
+    const activeAssignments = await db.fetchAll('SELECT * FROM "Assignment" WHERE "isActive" = true AND "adminId" = $1', [adminId]);
 
     let created = 0;
     let skipped = 0;
@@ -192,11 +214,11 @@ export async function PATCH(req: NextRequest) {
       const dueDate = new Date(parsedYear, parsedMonth - 1, 5);
 
       await db.query(
-        `INSERT INTO "Payment" (id, "tenantId", "flatId", amount, month, year, "dueDate", status, "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        `INSERT INTO "Payment" (id, "tenantId", "flatId", amount, month, year, "dueDate", status, "adminId", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           id, assignment.tenantId, assignment.flatId, assignment.rentAmount,
-          parsedMonth, parsedYear, dueDate, 'PENDING', now, now
+          parsedMonth, parsedYear, dueDate, 'PENDING', adminId, now, now
         ]
       );
       created++;

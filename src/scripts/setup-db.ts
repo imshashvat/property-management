@@ -20,7 +20,6 @@ async function setupDatabase() {
     await client.connect();
 
     console.log('Executing schema initialization...');
-    // Use the same schema that's embedded in db.ts
     await client.query(`
       -- PostgreSQL Schema for Property Management System
 
@@ -51,6 +50,7 @@ async function setupDatabase() {
           "description" TEXT,
           "image" TEXT,
           "isActive" BOOLEAN DEFAULT true,
+          "adminId" TEXT REFERENCES "User"("id"),
           "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -68,6 +68,7 @@ async function setupDatabase() {
           "furnishing" TEXT DEFAULT 'UNFURNISHED',
           "description" TEXT,
           "isActive" BOOLEAN DEFAULT true,
+          "adminId" TEXT REFERENCES "User"("id"),
           "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           "propertyId" TEXT NOT NULL REFERENCES "Property"("id") ON DELETE CASCADE,
@@ -86,6 +87,7 @@ async function setupDatabase() {
           "idProofUrl" TEXT,
           "moveInDate" TIMESTAMP,
           "isActive" BOOLEAN DEFAULT true,
+          "adminId" TEXT REFERENCES "User"("id"),
           "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           "userId" TEXT UNIQUE NOT NULL REFERENCES "User"("id") ON DELETE CASCADE
@@ -99,6 +101,7 @@ async function setupDatabase() {
           "deposit" DOUBLE PRECISION DEFAULT 0,
           "isActive" BOOLEAN DEFAULT true,
           "status" TEXT DEFAULT 'ACTIVE',
+          "adminId" TEXT REFERENCES "User"("id"),
           "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           "tenantId" TEXT NOT NULL REFERENCES "Tenant"("id") ON DELETE CASCADE,
@@ -117,6 +120,7 @@ async function setupDatabase() {
           "year" INTEGER NOT NULL,
           "lateFee" DOUBLE PRECISION DEFAULT 0,
           "notes" TEXT,
+          "adminId" TEXT REFERENCES "User"("id"),
           "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           "tenantId" TEXT NOT NULL REFERENCES "Tenant"("id") ON DELETE CASCADE,
@@ -133,6 +137,7 @@ async function setupDatabase() {
           "images" TEXT,
           "resolution" TEXT,
           "resolvedAt" TIMESTAMP,
+          "adminId" TEXT REFERENCES "User"("id"),
           "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           "tenantId" TEXT NOT NULL REFERENCES "Tenant"("id") ON DELETE CASCADE,
@@ -166,6 +171,7 @@ async function setupDatabase() {
           "priority" TEXT DEFAULT 'NORMAL',
           "isActive" BOOLEAN DEFAULT true,
           "expiresAt" TIMESTAMP,
+          "adminId" TEXT REFERENCES "User"("id"),
           "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -200,6 +206,7 @@ async function setupDatabase() {
           "checkOut" TIMESTAMP,
           "flatNumber" TEXT,
           "status" TEXT DEFAULT 'EXPECTED',
+          "adminId" TEXT REFERENCES "User"("id"),
           "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );

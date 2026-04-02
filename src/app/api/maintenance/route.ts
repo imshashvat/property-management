@@ -27,6 +27,10 @@ export async function GET(req: NextRequest) {
   if (auth.session!.role === 'TENANT') {
     query += ` AND m."tenantId" = $${i++}`;
     params.push(auth.session!.tenantId);
+  } else {
+    // Admin sees only their own maintenance requests
+    query += ` AND m."adminId" = $${i++}`;
+    params.push(auth.session!.userId);
   }
   if (status) {
     query += ` AND m.status = $${i++}`;
@@ -67,6 +71,7 @@ export async function POST(req: NextRequest) {
     // For tenant submissions, use their own IDs
     let resolvedTenantId = tenantId;
     let resolvedFlatId = flatId;
+    let resolvedAdminId: string | null = null;
 
     if (auth.session!.role === 'TENANT') {
       resolvedTenantId = auth.session!.tenantId;
@@ -77,6 +82,16 @@ export async function POST(req: NextRequest) {
       );
       if (!assignment) return error('No active flat assignment found');
       resolvedFlatId = assignment.flatId;
+
+      // Look up which admin manages this tenant
+      const tenantData = await db.fetchOne(
+        'SELECT "adminId" FROM "Tenant" WHERE id = $1',
+        [resolvedTenantId]
+      );
+      resolvedAdminId = tenantData?.adminId || null;
+    } else {
+      // Admin creating on behalf — use their own adminId
+      resolvedAdminId = auth.session!.userId;
     }
 
     if (!resolvedTenantId || !resolvedFlatId) {
@@ -87,13 +102,13 @@ export async function POST(req: NextRequest) {
     const now = new Date();
 
     const request = await db.fetchOne(
-      `INSERT INTO "MaintenanceRequest" (id, title, description, category, priority, status, "tenantId", "flatId", "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO "MaintenanceRequest" (id, title, description, category, priority, status, "tenantId", "flatId", "adminId", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         id, title, description, category || 'GENERAL', 
         priority || 'MEDIUM', 'OPEN', resolvedTenantId, 
-        resolvedFlatId, now, now
+        resolvedFlatId, resolvedAdminId, now, now
       ]
     );
 
@@ -108,11 +123,17 @@ export async function PUT(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
+
   try {
     const body = await req.json();
     const { id, status, resolution, priority } = body;
 
     if (!id) return error('Request ID is required');
+
+    // Verify ownership
+    const owned = await db.fetchOne('SELECT id FROM "MaintenanceRequest" WHERE id = $1 AND "adminId" = $2', [id, adminId]);
+    if (!owned) return error('Maintenance request not found', 404);
 
     const fields: string[] = [];
     const values: any[] = [];

@@ -9,6 +9,7 @@ export async function GET(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
   const { searchParams } = new URL(req.url);
   const propertyId = searchParams.get('propertyId');
   const status = searchParams.get('status');
@@ -17,10 +18,10 @@ export async function GET(req: NextRequest) {
     SELECT f.*, p.name as "propertyName", p.id as "propertyId"
     FROM "Flat" f
     JOIN "Property" p ON f."propertyId" = p.id
-    WHERE f."isActive" = true
+    WHERE f."isActive" = true AND f."adminId" = $1
   `;
-  const params: any[] = [];
-  let i = 1;
+  const params: any[] = [adminId];
+  let i = 2;
 
   if (propertyId) {
     query += ` AND f."propertyId" = $${i++}`;
@@ -67,6 +68,8 @@ export async function POST(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
+
   try {
     const body = await req.json();
     const { propertyId, flatNumber, floor, bedrooms, bathrooms, area, rentAmount, depositAmount, furnishing, description } = body;
@@ -74,6 +77,10 @@ export async function POST(req: NextRequest) {
     if (!propertyId || !flatNumber || !rentAmount) {
       return error('Property, flat number, and rent amount are required');
     }
+
+    // Verify property belongs to this admin
+    const owned = await db.fetchOne('SELECT id FROM "Property" WHERE id = $1 AND "adminId" = $2', [propertyId, adminId]);
+    if (!owned) return error('Property not found', 404);
 
     // Check for existing flat
     const existing = await db.fetchOne(
@@ -89,15 +96,15 @@ export async function POST(req: NextRequest) {
 
     const flat = await db.transaction(async (tx) => {
       const f = await tx.query(
-        `INSERT INTO "Flat" (id, "propertyId", "flatNumber", floor, bedrooms, bathrooms, area, "rentAmount", "depositAmount", furnishing, description, "isActive", "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        `INSERT INTO "Flat" (id, "propertyId", "flatNumber", floor, bedrooms, bathrooms, area, "rentAmount", "depositAmount", furnishing, description, "isActive", "adminId", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
          RETURNING *`,
         [
           id, propertyId, flatNumber, floor || 0,
           bedrooms || 1, bathrooms || 1, area || null,
           parseFloat(rentAmount), depositAmount ? parseFloat(depositAmount) : null,
           furnishing || 'UNFURNISHED', description || null,
-          true, now, now
+          true, adminId, now, now
         ]
       );
 
@@ -121,11 +128,17 @@ export async function PUT(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
+
   try {
     const body = await req.json();
     const { id, ...data } = body;
 
     if (!id) return error('Flat ID is required');
+
+    // Verify ownership
+    const owned = await db.fetchOne('SELECT id FROM "Flat" WHERE id = $1 AND "adminId" = $2', [id, adminId]);
+    if (!owned) return error('Flat not found', 404);
 
     const fields: string[] = [];
     const values: any[] = [];
@@ -162,12 +175,13 @@ export async function DELETE(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   if (!id) return error('Flat ID is required');
 
   try {
-    const flat = await db.fetchOne('SELECT "propertyId" FROM "Flat" WHERE id = $1', [id]);
+    const flat = await db.fetchOne('SELECT "propertyId" FROM "Flat" WHERE id = $1 AND "adminId" = $2', [id, adminId]);
     if (!flat) return error('Flat not found', 404);
 
     await db.transaction(async (tx) => {

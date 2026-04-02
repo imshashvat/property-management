@@ -160,7 +160,7 @@ export default function LoginPage() {
           <p className="login-subtitle">
             {mode === 'admin-login' && 'Sign in to management portal'}
             {mode === 'tenant-login' && 'Access your property portal'}
-            {mode === 'admin-signup' && 'Register your first admin account'}
+            {mode === 'admin-signup' && 'Create your property admin account'}
           </p>
 
           {successMsg && (

@@ -9,6 +9,8 @@ export async function GET() {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
+
   try {
     const assignments = await db.fetchAll(`
       SELECT a.*, t."firstName", t."lastName", t."credentialId", f."flatNumber", p.name as "propertyName", p.id as "propertyId"
@@ -16,8 +18,9 @@ export async function GET() {
       JOIN "Tenant" t ON a."tenantId" = t.id
       JOIN "Flat" f ON a."flatId" = f.id
       JOIN "Property" p ON f."propertyId" = p.id
+      WHERE a."adminId" = $1
       ORDER BY a."createdAt" DESC
-    `);
+    `, [adminId]);
 
     return success(assignments.map(a => ({
       ...a,
@@ -38,6 +41,8 @@ export async function POST(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
+
   try {
     const { tenantId, flatId, startDate, endDate, rentAmount, deposit } = await req.json();
 
@@ -45,8 +50,12 @@ export async function POST(req: NextRequest) {
       return error('Tenant, flat, start date, and rent amount are required');
     }
 
-    // Check if flat is available
-    const flat = await db.fetchOne('SELECT status FROM "Flat" WHERE id = $1 AND "isActive" = true', [flatId]);
+    // Verify tenant belongs to this admin
+    const ownedTenant = await db.fetchOne('SELECT id FROM "Tenant" WHERE id = $1 AND "adminId" = $2', [tenantId, adminId]);
+    if (!ownedTenant) return error('Tenant not found', 404);
+
+    // Check if flat is available and belongs to this admin
+    const flat = await db.fetchOne('SELECT status FROM "Flat" WHERE id = $1 AND "adminId" = $2 AND "isActive" = true', [flatId, adminId]);
     if (!flat) return error('Flat not found', 404);
     if (flat.status === 'OCCUPIED') return error('Flat is already occupied');
 
@@ -55,13 +64,13 @@ export async function POST(req: NextRequest) {
 
     const assignment = await db.transaction(async (tx) => {
       const a = await tx.query(
-        `INSERT INTO "Assignment" (id, "tenantId", "flatId", "startDate", "endDate", "rentAmount", deposit, "isActive", status, "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        `INSERT INTO "Assignment" (id, "tenantId", "flatId", "startDate", "endDate", "rentAmount", deposit, "isActive", status, "adminId", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          RETURNING *`,
         [
           id, tenantId, flatId, new Date(startDate), 
           endDate ? new Date(endDate) : null, parseFloat(rentAmount), 
-          deposit ? parseFloat(deposit) : 0, true, 'ACTIVE', now, now
+          deposit ? parseFloat(deposit) : 0, true, 'ACTIVE', adminId, now, now
         ]
       );
 
@@ -85,13 +94,15 @@ export async function PUT(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
+
   try {
     const body = await req.json();
     const { id, status, endDate } = body;
 
     if (!id) return error('Assignment ID is required');
 
-    const assignment = await db.fetchOne('SELECT * FROM "Assignment" WHERE id = $1', [id]);
+    const assignment = await db.fetchOne('SELECT * FROM "Assignment" WHERE id = $1 AND "adminId" = $2', [id, adminId]);
     if (!assignment) return error('Assignment not found', 404);
 
     const now = new Date();

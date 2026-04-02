@@ -7,6 +7,8 @@ export async function GET() {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
+
   try {
     const [
       totalProperties,
@@ -28,39 +30,40 @@ export async function GET() {
       paidPaymentsData,
       pendingPaymentsData
     ] = await Promise.all([
-      db.fetchOne('SELECT COUNT(*)::int as count FROM "Property" WHERE "isActive" = true'),
-      db.fetchOne('SELECT COUNT(*)::int as count FROM "Flat" WHERE "isActive" = true'),
-      db.fetchOne('SELECT COUNT(*)::int as count FROM "Flat" WHERE "isActive" = true AND status = $1', ['OCCUPIED']),
-      db.fetchOne('SELECT COUNT(*)::int as count FROM "Flat" WHERE "isActive" = true AND status = $1', ['VACANT']),
-      db.fetchOne('SELECT COUNT(*)::int as count FROM "Flat" WHERE "isActive" = true AND status = $1', ['UNDER_MAINTENANCE']),
-      db.fetchOne('SELECT COUNT(*)::int as count FROM "Tenant"'),
-      db.fetchOne('SELECT COUNT(*)::int as count FROM "Tenant" WHERE "isActive" = true'),
-      db.fetchOne('SELECT COUNT(*)::int as count FROM "Payment"'),
-      db.fetchOne('SELECT COUNT(*)::int as count FROM "Payment" WHERE status = $1', ['PAID']),
-      db.fetchOne('SELECT COUNT(*)::int as count FROM "Payment" WHERE status = $1', ['PENDING']),
-      db.fetchOne('SELECT COUNT(*)::int as count FROM "Payment" WHERE status = $1', ['OVERDUE']),
-      db.fetchOne('SELECT COUNT(*)::int as count FROM "MaintenanceRequest" WHERE status = $1', ['OPEN']),
-      db.fetchOne('SELECT COUNT(*)::int as count FROM "MaintenanceRequest" WHERE status = $1', ['IN_PROGRESS']),
-      db.fetchOne('SELECT COUNT(*)::int as count FROM "MaintenanceRequest" WHERE status IN ($1, $2)', ['RESOLVED', 'CLOSED']),
+      db.fetchOne('SELECT COUNT(*)::int as count FROM "Property" WHERE "isActive" = true AND "adminId" = $1', [adminId]),
+      db.fetchOne('SELECT COUNT(*)::int as count FROM "Flat" WHERE "isActive" = true AND "adminId" = $1', [adminId]),
+      db.fetchOne('SELECT COUNT(*)::int as count FROM "Flat" WHERE "isActive" = true AND status = $1 AND "adminId" = $2', ['OCCUPIED', adminId]),
+      db.fetchOne('SELECT COUNT(*)::int as count FROM "Flat" WHERE "isActive" = true AND status = $1 AND "adminId" = $2', ['VACANT', adminId]),
+      db.fetchOne('SELECT COUNT(*)::int as count FROM "Flat" WHERE "isActive" = true AND status = $1 AND "adminId" = $2', ['UNDER_MAINTENANCE', adminId]),
+      db.fetchOne('SELECT COUNT(*)::int as count FROM "Tenant" WHERE "adminId" = $1', [adminId]),
+      db.fetchOne('SELECT COUNT(*)::int as count FROM "Tenant" WHERE "isActive" = true AND "adminId" = $1', [adminId]),
+      db.fetchOne('SELECT COUNT(*)::int as count FROM "Payment" WHERE "adminId" = $1', [adminId]),
+      db.fetchOne('SELECT COUNT(*)::int as count FROM "Payment" WHERE status = $1 AND "adminId" = $2', ['PAID', adminId]),
+      db.fetchOne('SELECT COUNT(*)::int as count FROM "Payment" WHERE status = $1 AND "adminId" = $2', ['PENDING', adminId]),
+      db.fetchOne('SELECT COUNT(*)::int as count FROM "Payment" WHERE status = $1 AND "adminId" = $2', ['OVERDUE', adminId]),
+      db.fetchOne('SELECT COUNT(*)::int as count FROM "MaintenanceRequest" WHERE status = $1 AND "adminId" = $2', ['OPEN', adminId]),
+      db.fetchOne('SELECT COUNT(*)::int as count FROM "MaintenanceRequest" WHERE status = $1 AND "adminId" = $2', ['IN_PROGRESS', adminId]),
+      db.fetchOne('SELECT COUNT(*)::int as count FROM "MaintenanceRequest" WHERE status IN ($1, $2) AND "adminId" = $3', ['RESOLVED', 'CLOSED', adminId]),
       db.fetchAll(`
         SELECT p.*, t."firstName", t."lastName", f."flatNumber"
         FROM "Payment" p
         JOIN "Tenant" t ON p."tenantId" = t.id
         JOIN "Flat" f ON p."flatId" = f.id
-        WHERE p.status = 'PAID'
+        WHERE p.status = 'PAID' AND p."adminId" = $1
         ORDER BY p."paidDate" DESC
         LIMIT 5
-      `),
+      `, [adminId]),
       db.fetchAll(`
         SELECT m.*, t."firstName", t."lastName", f."flatNumber"
         FROM "MaintenanceRequest" m
         JOIN "Tenant" t ON m."tenantId" = t.id
         JOIN "Flat" f ON m."flatId" = f.id
+        WHERE m."adminId" = $1
         ORDER BY m."createdAt" DESC
         LIMIT 5
-      `),
-      db.fetchOne('SELECT COALESCE(SUM(amount), 0)::float as sum FROM "Payment" WHERE status = $1', ['PAID']),
-      db.fetchOne('SELECT COALESCE(SUM(amount), 0)::float as sum FROM "Payment" WHERE status IN ($1, $2)', ['PENDING', 'OVERDUE'])
+      `, [adminId]),
+      db.fetchOne('SELECT COALESCE(SUM(amount), 0)::float as sum FROM "Payment" WHERE status = $1 AND "adminId" = $2', ['PAID', adminId]),
+      db.fetchOne('SELECT COALESCE(SUM(amount), 0)::float as sum FROM "Payment" WHERE status IN ($1, $2) AND "adminId" = $3', ['PENDING', 'OVERDUE', adminId])
     ]);
 
     const tFlats = totalFlats?.count || 0;

@@ -9,13 +9,15 @@ export async function GET() {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
+
   try {
     const properties = await db.fetchAll(`
       SELECT p.*, (SELECT COUNT(*)::int FROM "Flat" f WHERE f."propertyId" = p.id AND f."isActive" = true) as "flatCount"
       FROM "Property" p
-      WHERE p."isActive" = true
+      WHERE p."isActive" = true AND p."adminId" = $1
       ORDER BY p."createdAt" DESC
-    `);
+    `, [adminId]);
 
     return success(properties.map(p => ({
       ...p,
@@ -31,6 +33,8 @@ export async function POST(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
+
   try {
     const body = await req.json();
     const { name, address, city, state, zipCode, type, description, amenities } = body;
@@ -43,14 +47,14 @@ export async function POST(req: NextRequest) {
     const now = new Date();
 
     const property = await db.fetchOne(
-      `INSERT INTO "Property" (id, name, address, city, state, "zipCode", type, description, amenities, "isActive", "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `INSERT INTO "Property" (id, name, address, city, state, "zipCode", type, description, amenities, "isActive", "adminId", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING *`,
       [
         id, name, address, city, state, zipCode, 
         type || 'APARTMENT', description || null, 
         amenities ? JSON.stringify(amenities) : null,
-        true, now, now
+        true, adminId, now, now
       ]
     );
 
@@ -65,11 +69,17 @@ export async function PUT(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
+
   try {
     const body = await req.json();
     const { id, ...data } = body;
 
     if (!id) return error('Property ID is required');
+
+    // Verify ownership
+    const owned = await db.fetchOne('SELECT id FROM "Property" WHERE id = $1 AND "adminId" = $2', [id, adminId]);
+    if (!owned) return error('Property not found', 404);
 
     const fields: string[] = [];
     const values: any[] = [];
@@ -104,10 +114,15 @@ export async function DELETE(req: NextRequest) {
   const auth = await requireAuth(['ADMIN']);
   if (auth.error) return auth.error;
 
+  const adminId = auth.session!.userId;
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
 
   if (!id) return error('Property ID is required');
+
+  // Verify ownership
+  const owned = await db.fetchOne('SELECT id FROM "Property" WHERE id = $1 AND "adminId" = $2', [id, adminId]);
+  if (!owned) return error('Property not found', 404);
 
   await db.query(
     'UPDATE "Property" SET "isActive" = false, "updatedAt" = $2 WHERE id = $1',

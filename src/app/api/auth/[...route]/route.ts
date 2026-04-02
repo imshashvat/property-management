@@ -221,19 +221,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
       if (!name || !email || !password) return error('Name, email, and password are required');
       if (password.length < 6) return error('Password must be at least 6 characters');
 
-      const existingAdmin = await db.fetchOne(
-        'SELECT id FROM "User" WHERE role = $1 AND "isActive" = true LIMIT 1',
-        ['ADMIN']
-      );
-
-      if (existingAdmin) {
-        const cookieStore = await cookies();
-        const token = cookieStore.get('access_token')?.value;
-        if (!token) return error('Admin already exists. Please login first.', 403);
-        const payload = await verifyAccessToken(token);
-        if (!payload || payload.role !== 'ADMIN') return error('Only existing admins can create new admin accounts', 403);
-      }
-
+      // Check if email is already taken
       const existingUser = await db.fetchOne('SELECT id FROM "User" WHERE email = $1', [email]);
       if (existingUser) return error('Email already registered');
 
