@@ -101,7 +101,7 @@ export default function TenantDashboard() {
                   {[
                     { label: 'Config', value: `${flat.bedrooms}BHK · ${flat.bathrooms}BA` },
                     { label: 'Area', value: flat.area ? `${flat.area} sq ft` : '—' },
-                    { label: 'Furnishing', value: flat.furnishing.replace('_', ' ') },
+                    { label: 'Furnishing', value: (flat.furnishing || '').replace('_', ' ') },
                   ].map(item => (
                     <div key={item.label}>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{item.label}</div>
@@ -194,7 +194,7 @@ export default function TenantDashboard() {
                     {new Date(m.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                   </div>
                 </div>
-                <span className={`badge ${mBadge(m.status)}`}>{m.status.replace('_', ' ')}</span>
+                <span className={`badge ${mBadge(m.status)}`}>{(m.status || '').replace('_', ' ')}</span>
               </div>
             ))}
           </div>
