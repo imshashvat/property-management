@@ -1,9 +1,11 @@
 import { Pool, QueryResult, QueryResultRow } from 'pg';
 
+const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL;
+
 // Serverless-optimized pool configuration
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false },
+  connectionString,
+  ssl: connectionString?.includes('localhost') ? false : { rejectUnauthorized: false },
   max: 5,                  // Limit connections for serverless
   idleTimeoutMillis: 10000, // Close idle connections quickly
   connectionTimeoutMillis: 10000,
@@ -79,6 +81,7 @@ export const db = {
       console.log('Database schema initialized successfully!');
     } catch (err) {
       console.error('Schema initialization error:', err);
+      throw err;
     }
   }
 };
