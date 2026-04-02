@@ -1,6 +1,6 @@
 import { Pool, QueryResult, QueryResultRow } from 'pg';
 
-const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL;
+const connectionString = process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL || process.env.DATABASE_URL;
 
 // Serverless-optimized pool configuration
 const pool = new Pool({
